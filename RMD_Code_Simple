@@ -1,0 +1,731 @@
+---
+title: "Spatial Data Basics Workshop"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Welcome to the Spatial Data Basics in R Workshop
+## Overview: Using R as a GIS
+
+This workshop covers the basics of using R as a GIS and gives a teaser on advanced spatial analyses. In review, GIS stands for Geographic Information Systems. Geographic Information Systems are, "a specialist information technology (IT) used for handling mapped data" (Burrough, McDonnell, & Llyod, 2015). Traditionally, these systems have been gooey interfaces that can accept spatial data in a variety of different formats. Increasingly, GIS related tasks are accomplished in a coding environment such as 'R' or 'Python'. Typically, coding was done in a Python console within ESRI's ArcGIS or, the open-source alternative, QGIS. Generally, the coding efforts have been limited. 
+
+Although, there are certain GIS tasks that are still best suited for a traditional GIS environment, there are equally as many that well suited to R or the Conda environment for Python. The control and reproducibility, offered in the coding environment, is leaps and bounds ahead of anything a traditional GIS can do. As capabilities around spatial data manipulation and analysis in R increase more people, GIS Specialists and Novices, are looking to use R as a GIS. 
+
+Before diving into the material, it is important to lay out two assumptions:
+1. The presenter assumes all attendees have a basic working knowledge of 'R'.
+2. The presenter assumes that attendees have little to no knowledge of GIS and spatial data.
+
+If you have no knowledge of 'R' you are of course still welcome! Just reach out to another attendee, one of the hosts, or the presenter for additional help as you need it! If you are an advanced GIS user, I hope there is still something you can take away from this presentation. Hopefully, you will be an asset to others in attendance today :).
+
+So, let's get started!
+
+## Preparing the Enviroment
+
+The below code installs and the loads the packages necessary for today's workshop.
+
+```{r code install, eval=FALSE}
+# Install packages
+install.packages("sp") # Classes and methods for spatial data
+install.packages("rgdal") # Access to projection/transformation operations
+install.packages("rgeos") # Manipulation and querying of spatial geometries
+install.packages("tidyverse") # For basic data manipulation
+install.packages("raster") # Works with spatial data primarily raster but also vector
+install.packages("tmap") # For mapping spatial data
+install.packages("tmaptools") # Additional tools for the tmap package
+install.packages("leaflet") # Open-source JavaScript libraries for interactive maps
+install.packages("RColorBrewer") # Pre-packaged color pallettes
+install.packages("spgwr") # geographically weighted regression
+install.packages("jsonlite") # high performance tools for working with JSON
+```
+
+```{r code load, echo=T, results='hide', warning=FALSE, message = FALSE}
+# Load packages
+library(sp) 
+library(rgdal)
+library(rgeos)
+library(tidyverse)
+library(raster)
+library(tmap)
+library(tmaptools)
+library(leaflet)
+library(RColorBrewer)
+library(spgwr)
+library(jsonlite)
+```
+
+## Reading Tabular Data Into 'R'
+
+When doing an analysis, spatial or not, we tend to have tabular data that we need to manipulate. In this case, we will be using the American Community Survey (ACS). ACS, "is an ongoing survey that provides vital information on a yearly basis about our nation and its people" (US Census Bureau, 2018). The data is open to the public and has a known spatial component. You can analyze it from an area as small as a census tract (generally 2,500 - 8,000 people) up through regional or national levels. To start, we are going to focus on the variable 'median earnings in the last 12 months'.
+
+Quick note: I have provided the data and shapefiles we will need for today. This is to expedite the workshop but usually you would need to access the ACS or Census data via an API. In 'R' this can be done, most easily, using the tidycensus package. More information on the tidycensus package is located [here](https://walkerke.github.io/tidycensus/index.html). You will need to [request an API key](https://api.census.gov/data/key_signup.html) for tidycensus to work. This can take some time, so I would not count on using the API during today's workshop.
+
+```{r Read Tabular Data}
+
+# Set working directory to a location that works best for you.
+setwd("C:/Users/mary.lennon/Documents/RLadies_Spatial")
+
+# Read data from the web
+acs_data <- read.csv('./ACS_Data/acs_data.csv')
+
+# Check that everything loaded
+head(acs_data)
+```
+
+## Reading Spatial Data Into 'R'
+
+Spatial data comes in many shapes and sizes: GPX, Shapefile, GeoJSON, and more. The most common format is the shapefile. A shapefile stores both the, "geometric location and attribute information of geographic features" (ESRI).  Vector images are made of individual points that have x/y (latitude/longitude) coordinates. These points can be joined to create a line or a polygon. The spatial data that we are most likely to come across in our work is vector data, so that is all we will use today. Differing from vector data is raster data. Raster's are made up of pixels or cells that have an associated value with them. "Raster's contain additional information describing where the edges of the image are located in the real world, together with how big each cell is on the ground. This means that your GIS can position your raster images correctly relative to one another, and this allows you to build up your map" (Stack Exchange). 
+
+![Raster v. Vector (Mullen, 2015)](/Users/mary.lennon/Documents/RLadies_Spatial/Images/vector-vs-raster.png)
+
+
+During this workshop we will load point, line, and polygon shapefiles into 'R'. First, we are loading our polygons - census tracts that we can pair with our ACS survey results???.
+
+Please Note: You have download several shapefiles for this workshop and each is contained within it's own sub-folder within our working directory. If you open those folders you will see several files with the same name but different file extensions.
+
+*.shp - Contains the lat/long information for your shapefile
+*.dbf - The tabular attribute data associated with the geographic location
+*.prj - The projection of the shapefile, see CRS explained later in this workshop.
+*.shx - Spatial indexing
+
+There are possibly more but these are the only ones that are required for a shapefile. We will dive into this in the below code.
+
+```{r Read Spatial Data, echo=T}
+
+# Read in the shapefile 
+census_boundaries <-
+  rgdal::readOGR("./Census_Boundaries",
+          layer = "cb_2017_42_tract_500k")
+
+# Is it true?! 
+# Did we just load spatial data?! 
+# I'm skeptical.
+plot(census_boundaries)
+
+# But look there it is!!!!!!!
+
+# Now, lets look at the structure of the spatial data in R. This is going to be different
+# than what you are used to.
+
+# Lets first run a test to see what happens if we try to look at the head of the data we normally would.
+# Remember, using the head() function allows you to see the top 6 observations of the data. This is a good
+# idea as it allows to inspect the data we are working with.
+head(census_boundaries)
+
+```
+
+Wow, that was a lot of information and it's not formatted the way I am used to.
+![What just happened?](/Users/mary.lennon/Documents/RLadies_Spatial/Images/cat_ohmy.gif)
+
+What you just saw printed out all at once, were a bunch of different "slots" for the spatial data. The slot we are most interested in is the '@data' slot as it contains the attribute information for the shapefile.
+
+```{r Read Spatial Data Cont., echo=T}
+head(census_boundaries@data)
+```
+
+These results look much more familiar. While accessing the data slot you probably noticed other slots (polygons, plotOrder, bbox, and proj4string). We aren't going to dig into these much but will explore proj4string later.
+
+Looking at this tabular data we can't tell a whole lot. STATEFP, COUNTYFP.... may not mean much to anyone who has never worked with census data before. In summary, they are coded identifiers for the different spatial polygons that can be used to link the polygons to the ACS data. 
+
+## Joining Non-Spatial Data to Spatial Data
+
+This process is very similar to joining non-spatial tables together; all the same rules of a join apply. We need a matching identifier between the two datasets that we can use as our join field. Instead of inner, left, or right join we use merge. For anyone who has worked in a traditional GIS program such as ArcGIS or QGIS this is analogous to the merge you use in those environments.
+
+```{r Joining Non-Spatial and Spatial Data, echo=T}
+# The spatial object needs to be listed first in the merge function for the result to be a spatial object.
+acs_spatial <-
+  sp::merge(x = census_boundaries, y = acs_data, by = "GEOID")
+
+# How would you inspect the results?
+
+```
+
+## Subsetting Spatial Data
+
+Now that we have inspected the data we can see that we have many 'NA' values. This is because we have more spatial data, more polygons, than we do attribute information in the table we joined. The ACS data I provided only has information for the census tracts in Philadelphia whereas the polygon shapefile contains all census tracts in Pennsylvania. To resolve this we need to subset the data. We can do this one of two ways, by attribute or by spatial selection. I am going to show you both.
+
+By attribute:
+To subset the data to Philadelphia County only, which contains the Philadelphia census tracts, we need to subset the data to only include observations where the 'COUNTYFP' is 101. This is Philadelphia's federally recognized code.
+
+For other codes please visit this [website](https://www.census.gov/geo/reference/codes/cou.html).
+
+```{r Subsetting Data by Attribute, echo=T}
+# Subset the data
+acs_philly <- subset(x = acs_spatial, subset = COUNTYFP == 101)
+
+# Check the results
+head(acs_philly@data)
+unique(acs_philly@data$COUNTYFP)
+
+# Quick plot to look at the data
+plot(acs_philly)
+```
+
+Spatial selection:
+
+Although we have a field that we can use to subset our data there may be future instances where this is not the case. In these instances we may want to try a spatial selection. This is where we overlap two shapefiles, or other spatial data format, and select attributes based on overlapping spatial geometries. The example here will be that we want all census tract polygons that fall within the boundaries of shapefile for Philadelphia County.
+
+```{r Subsetting Data by Spatial Selection, echo=T}
+# I have provided you with a second shapefile, an outline for
+# Philadelphia county. Lets load that data here.
+
+# Load Philadelphia County shapefile
+Phila_County <-
+  readOGR(dsn = "./Philadelphia_County_Boundary",
+          layer = "Philadelphia_County_NAD83")
+
+# Spatial selection
+# spgeom1 is the layer we want to use to do our selection
+# spgeom2 is the layer we want our selection from
+
+acs_philly <-
+  raster::intersect(Phila_County,
+                    acs_spatial)
+```
+
+Wait...this doesn't work!
+
+![Mary...you said we could do this!!](/Users/mary.lennon/Documents/RLadies_Spatial/Images/obama.gif)
+
+
+
+This is a very important error and learning point. Let's look at that error a little more closely...
+
+"spgeom1 and spgeom2 have different proj4 strings"
+
+This is because our coordinate reference systems (CRS) differ.
+
+## Changing Coordinate Reference Systems
+AKA Re-projecting
+
+Coordinate reference systems, also known as projections, are really important when working with spatial data. "The Coordinate Reference System (CRS) of spatial objects defines where they are placed on the Earth's surface" (Lovelace, Cheshire, & Oldroyd, 2017). We need CRS because mapping 2D coordinates on the 3D earth requires some math. There are many different projections because there are many different ways to map from 2D to 3D. Some account for the curvature of the earth's surface (geographic) and others do not (projected). Many have datum's that are specific to a country. These factors and more cause a different representation of the spatial data. Working with data in two different reference systems, in one project, causes a compatibility issue. Often, we cannot control the reference system of the data we receive but we can re-project the data to be in the same system.
+
+There is a lot more that could be said on this topic, if you are interested. [Here](http://downloads2.esri.com/support/documentation/ao_/710Understanding_Map_Projections.pdf) is a primer provided by ESRI (a large supplier of GIS technology) that does a good job.
+
+To find a reference list of coordinate systems go to [espi.io](https://espg.io).
+
+```{r Re-project, echo=T}
+
+# Let's review what I taught you about slots with the spatial data.
+# There was the one slot I said we would need to remember that
+# is important: proj4string. If we look at that we can see what the
+# CRS is for the spatial data.
+
+# The ACS spatial data
+acs_spatial@proj4string
+
+# The Philadelphia county boundary
+Phila_County@proj4string
+
+# We can also use this function from the sp package
+proj4string(Phila_County)
+
+# We aren't going to worry about what all of the bits of these strings
+# mean. That is beyond the scope of this workshop. We are going to note
+# that they are clearly different. So...we need to re-project the data
+# to be in the same CRS. I am choosing World Geodetic System 84 as it
+# is commonly used.
+
+# It's good practice to set the CRS as a variable so you can easily
+# refer to it later. We will do so here.
+
+WGS84 <- "+init=epsg:4326"
+
+# Re-project the data using the the sp package
+
+Phila_County <- sp::spTransform(x = Phila_County, CRSobj = WGS84)
+acs_spatial <- sp::spTransform(x = acs_spatial, CRSobj = WGS84)
+
+## Please Note: Transforming/ Re-projecting the data is more than
+# just changing the CRS. Please ALWAYS make sure you are transforming/
+# re-projecting the data and not just changing the name of the CRS.
+
+# Check the CRS
+proj4string(Phila_County)
+proj4string(acs_spatial)
+
+# Yay!! Everything is in the same CRS!!! Now, let's try that spatial
+# selecion again.
+
+acs_philly <-
+  raster::intersect(Phila_County,
+                    acs_spatial)
+
+# Lets check that everything looks good with the data.
+
+# First good sign is that we have the correct number of observations in the table (see our Environment).
+# There are 384 observations in both acs_philly and acs_data. We know that acs_data, the attribute
+# data we originally started with had the correct number of observations so this is a good sign.
+
+# Lets check the attributes of the data
+head(acs_philly@data)
+
+# Also, a quick plot to make sure everything looks correct
+plot(acs_philly)
+```
+
+## Recoding Data & Creating New Variables
+
+As you may have noticed, there are a lot of other variables in our dataset that we may or may not need. Further, not all of them are named usefully. Before we map this data we are going to clean up our dataset a little bit and add a new variable to aid in our mapping. We are going to keep it relatively simple and create a classification of the variable B08121_001_estimate which is actually the median earnings in the last 12 months.
+
+Please Note: Each ACS variable comes with an estimate and a MOE. ACS estimates are based on a sample of the population. The MOE is the margin of error around that number which is the possible variation around that value. We will only be concerning ourselves with the estimate for this workshop although I have provided the MOE for you.
+
+For more on the [MOE](https://www.census.gov/programs-surveys/acs/guidance/training-presentations/acs-moe.html).
+
+```{r Recoding variables}
+
+# First we are going to cut down the number of variables we have in the dataset
+# We are going to accomplish this with the subset function from the tidyverse.
+# This time there is a select function within the subset function to allow
+# us to choose the variables we want to keep.
+
+# For the purposes of this excercise we are going
+# to limit our efforts to State (STATEFP.1), County (COUNTYFP.1),
+# Census Tract (TRACTCE), Tract Name (NAME.y), and the varying estimates (_estimate),
+# and MOE's for the dataset (_moe).
+acs_philly <- subset(
+  x = acs_philly,
+  select = c(
+    "STATEFP.1",
+    "COUNTYFP.1",
+    "TRACTCE",
+    "NAME.y",
+    "B08121_001_estimate",
+    "B08121_001_moe",
+    "Total_Worked_At_Home_estimate",
+    "Total_Worked_At_Home_021_moe",
+    "Total_Married_Couple_Family_estimate",
+    "Total_Married_Couple_Family_moe",
+    "Total_PopOneRace_White_estimate",
+    "Total_PopOneRace_White_moe"
+  )
+)
+
+# New variable names
+var_names <-
+  c("State",
+    "County",
+    "Census_Tract",
+    "Tract_Name",
+    "MedInc_Est",
+    "MedInc_Moe",
+    "Total_Worked_At_Home_estimate",
+    "Total_Worked_At_Home_021_moe",
+    "Total_Married_Couple_Family_estimate",
+    "Total_Married_Couple_Family_moe",
+    "Total_PopOneRace_White_estimate",
+    "Total_PopOneRace_White_moe"
+    )
+
+# Rename the variables
+names(acs_philly@data) <- var_names
+
+# Create a new variable that bands the median income by quartiles.
+acs_philly@data$MedIncQuart <-
+  ntile(x = acs_philly@data$MedInc_Est, n = 4)
+
+```
+
+## Mapping
+
+We have made it so far! These are a lot of the basics of spatial data... now on to, arguably, the most
+fun part... mapping!!!!!!!!!!!!
+
+![We are getting fancy now!](/Users/mary.lennon/Documents/RLadies_Spatial/Images/fancy.gif)
+
+We have already created basic maps, using plot(), that show the basic outline of the spatial data. We are now going to create a more complex choropleth map. A choropleth map shows geographic areas shaded or colored differently based on the variable being depicted. There are several packages we can use to map data. We are going to stick to tmap in this workshop. I, personally, tend to find that ggplot/ggmap is not the most intuitive. There are benefits to working with ggplot for mapping, so I encourage exploring it outside of tutorial.
+
+```{r Mapping}
+
+# For a quick single topic map we can use tmap's qtm function.
+tmap::qtm(acs_philly, fill = "MedIncQuart")
+
+# We can continue to modify the map using other tmap functions.
+# To use these other functions, we first load the data in with
+# the tm_shape function. We then can build upon this with tm_fill,
+# tm_borders, tm_compass, tm_layout, etc.
+
+# Simple example of tm_shape and tm_fill
+
+tm_shape(acs_philly) + tm_fill("MedIncQuart")
+
+# There are a variety of different color pallets that we can choose.
+# A popular option to choose one is RColor Brewer. Maps are often
+# used to tell a story. As with any number of statistics, there
+# are a variety of ways to tell a story with your data.
+# The story can be changed through different presentations of the
+# numbers either through graphs or visualizations such as maps.
+# One way to affect the story that numbers tell, or to set a tone
+# with your visualizeion, is through color.
+
+# ColorBrewer is a common go-to color palette choices
+
+# To see all possible ColorBrewer options use the following function:
+display.brewer.all()
+
+# For more information on ColorBrewer: http://colorbrewer2.org/#type=sequential&scheme=BuGn&n=3
+
+# A map using a ColorBrewer pallette:
+tm_shape(acs_philly) + tm_fill("MedIncQuart", palette = "Blues")
+tm_shape(acs_philly) + tm_fill("MedIncQuart", palette = "-Blues") # Reversed
+
+# As mentioned above, the way numbers are presented affects
+# the message of a graphic. We can show our data different ways 
+# easily with the tmap package. We should always take care in 
+# how we visualize our data as we can distort our message.
+
+# Take a look at these different types of breaks in the
+# median income attribute. How do they change the
+# message the graphic is telling? For more on this topic
+# https://blog.cartographica.com/blog/2010/8/16/gis-data-classifications-in-cartographica.html
+
+# Quantile
+
+tm_shape(acs_philly) + tm_fill(
+  "MedInc_Est",
+  style = "quantile",
+  n = 5,
+  palette = "Reds",
+  legend.hist = TRUE
+) +
+  tm_layout(
+    "ACS 2017 - Median Income",
+    legend.title.size = 1,
+    legend.text.size = 0.6,
+    legend.width = 1.0,
+    legend.outside = TRUE,
+    legend.bg.color = "white",
+    legend.bg.alpha = 0,
+    frame = FALSE
+  )
+# + tm_compass() # If you want a north arrow
+
+# Pretty
+tm_shape(acs_philly) + tm_fill(
+  "MedInc_Est",
+  style = "pretty",
+  n = 5,
+  palette = "Reds",
+  legend.hist = TRUE
+) +
+  tm_layout(
+    "ACS 2017 - Median Income",
+    legend.title.size = 1,
+    legend.text.size = 0.6,
+    legend.width = 1.0,
+    legend.outside = TRUE,
+    legend.bg.color = "white",
+    legend.bg.alpha = 0,
+    frame = FALSE
+  )
+
+# Equal
+tm_shape(acs_philly) + tm_fill(
+  "MedInc_Est",
+  style = "equal",
+  n = 5,
+  palette = "Reds",
+  legend.hist = TRUE
+) +
+  tm_layout(
+    "ACS 2017 - Median Income",
+    legend.title.size = 1,
+    legend.text.size = 0.6,
+    legend.width = 1.0,
+    legend.outside = TRUE,
+    legend.bg.color = "white",
+    legend.bg.alpha = 0,
+    frame = FALSE
+  )
+
+# Jenks
+tm_shape(acs_philly) + tm_fill(
+  "MedInc_Est",
+  style = "jenks",
+  n = 5,
+  palette = "Reds",
+  legend.hist = TRUE
+) +
+  tm_layout(
+    "ACS 2017 - Median Income",
+    legend.title.size = 1,
+    legend.text.size = 0.6,
+    legend.width = 1.0,
+    legend.outside = TRUE,
+    legend.bg.color = "white",
+    legend.bg.alpha = 0,
+    frame = FALSE
+  )
+
+# We can layer differ shapefiles in one map. There are many reasons we
+# could want to do this. For demonstration purposes, we are going to
+# layer SEPTA Regional Rail Lines and Stations.
+
+# Read in the Philadelphia Regional Rail shapefile
+SEPTA_RR <-
+  readOGR(dsn = "C:/Users/mary.lennon/Desktop/RLadies_Presentation/SEPTA_RegionalRail",
+          layer = "SEPTAGISRegionalRailLines_201207")
+
+# SEPTA Stations shapefile
+SEPTA_Staions <-
+  readOGR(dsn = "C:/Users/mary.lennon/Desktop/RLadies_Presentation/SEPTA_RegionalRail",
+          layer = "SEPTAGISRegionalRailStations_2016")
+
+# Make sure it is in the correct CRs
+SEPTA_RR <- sp::spTransform(x = SEPTA_RR, CRSobj = WGS84)
+SEPTA_Staions <- sp::spTransform(x = SEPTA_Staions, CRSobj = WGS84)
+
+# Plot
+tm_shape(acs_philly) + tm_fill(
+  "MedInc_Est",
+  style = "jenks",
+  n = 5,
+  palette = "Reds",
+  legend.hist = TRUE
+) +
+  tm_shape(SEPTA_RR) +
+  tm_lines(col = "black", scale = 1, alpha = 0.25) +
+  tm_shape(SEPTA_Staions) +
+  tm_dots(
+    col = "black",
+    scale = 2.5,
+    alpha = 0.7,
+    shape = 16
+  ) +
+  tm_layout(
+    "ACS 2017 - Median Income",
+    legend.title.size = 1,
+    legend.text.size = 0.6,
+    legend.width = 1.0,
+    legend.outside = TRUE,
+    legend.bg.color = "white",
+    legend.bg.alpha = 0,
+    frame = FALSE
+  )
+
+# Change the style
+# See the options listed on your console when you run this code.
+# Play around with them!
+tmap_style("classic") +
+  tm_shape(acs_philly) + tm_fill(
+    "MedInc_Est",
+    style = "jenks",
+    n = 5,
+    palette = "Reds",
+    legend.hist = TRUE
+  ) +
+  tm_shape(SEPTA_RR) +
+  tm_lines(col = "black", scale = 1, alpha = 0.25) +
+  tm_shape(SEPTA_Staions) +
+  tm_dots(
+    col = "black",
+    scale = 2.5,
+    alpha = 0.7,
+    shape = 16
+  ) +
+  tm_layout(
+    "ACS 2017 - Median Income",
+    legend.title.size = 1,
+    legend.text.size = 0.6,
+    legend.width = 1.0,
+    legend.outside = TRUE,
+    legend.bg.color = "white",
+    legend.bg.alpha = 0,
+    frame = FALSE
+  )
+
+# Add a basemap
+
+# I have not figured out a way to have a static basemap with tmap.
+# However, we can easily get interactive maps where
+# we can change the basemap as we please!
+
+# To work with interactive maps we need to switch the mode (tmap_mode) 
+# to view. The other option is tmap_mode("Plot") which disengages the
+# interactive quality of the maps. You can switch
+# between the two modes by including ttm() in your code!
+
+tmap_mode("view") # View for interactive
+
+tm_basemap(providers$OpenStreetMap.BlackAndWhite) +
+  tm_shape(acs_philly) + tm_fill(
+    "MedInc_Est",
+    style = "jenks",
+    n = 5,
+    palette = "Reds",
+    legend.hist = TRUE
+  ) +
+  tm_shape(SEPTA_RR) +
+  tm_lines(col = "black", scale = 1, alpha = 0.25) +
+  tm_shape(SEPTA_Staions) +
+  tm_dots(
+    col = "black",
+    scale = 1.5,
+    alpha = 0.7,
+    shape = 16
+  ) +
+  tm_layout(
+    "ACS 2017 - Median Income",
+    legend.title.size = 1,
+    legend.text.size = 0.6,
+    legend.width = 1.0,
+    legend.outside = TRUE,
+    legend.bg.color = "white",
+    legend.bg.alpha = 0,
+    frame = FALSE
+  )
+# Try different types of basemaps here: http://leaflet-extras.github.io/leaflet-providers/preview/
+
+# Switch back to plotting mode - remove the hash on the below code
+# if you want to try this out!
+#ttm()
+```
+
+I encourage you to keep playing with all the options presented here and more! There is functionality for facet wrap with the tm_facets function if you get a chance.
+
+## Teaser: Advanced Spatial Anlysis in R
+
+Spatial data can be a powerful element in any analysis. With statistics, whether descriptive or predictive, we try to explain as much variability in the data, related to our outcome variable, as we can. Sometimes a portion of this variability can be accounted for by building geography into our models. Before we get to modeling, there are many different factors that should be considered and other exploratory analyses you should be run to aid in a deeper understanding of the data as it will affect how you build and interpret your model. 
+
+This workshop originally intended to create a spatial model (using something like geographically weighted regression) but decided to leave this for what will hopefully be a second workshop on Spatial Data Analysis. Due to the time limtations and anticipated number of new GIS users via this workshop it was decided that it would be too much to cover. More importantly, that this tutorial would have to brush over some very imporant topics that really should be covered in conjunction with the creation of a spatial model. For example:
+
+-	MAUP
+- Spatial Autocorrelation
+-	Spatial Hierarchies
+-	Spatial Weights
+-	Spatial Lag
+-	and more
+
+However, I will give a little taste by exploring MAUP, the Modifiable Aerial Unit Problem, in this section.
+
+MAUP is a commonly cited issue in geographical analyses, the term refers to issues arising from the aggregation of individual events into imposed boundaries (ex. individuals into a census tract or larger). MAUP is composed of two separate but related issues, scale and zone. Scale, is when problems arise from aggregating smaller units into larger ones and vice-versa. Zone, also known as aggregation, is caused by different groupings of units at the same scale (Openshaw, 1983). The primary issue arising from MAUP is that of ecological fallacy, another geographical dilemma. Ecological fallacy is, “a wrongful assumption about an individual based on aggregate data for a group” (Openshaw, 1984). Any relationship that is identified between two variables, at an aggregated level, may only be due to aggregation and not a true association and therefore may add bias into our analysrd 
+
+![A common example of MAUP is Jerrymandering.](/Users/mary.lennon/Documents/RLadies_Spatial/Images/jerrymandering.jpg)
+
+If you want to explore this more, download other geographic boundaries for census data and aggregate the results to each level. You have the skills you need for this with the spatial selection we did earlier. Visualize the data in different ways. Similarly, use the meetup data from Bonus Activity #1 below to aggregate points to the different geometries and analyze the results.
+
+Other geographic boundaries, compatable with the ACS data, can be found [here](https://www.census.gov/geo/maps-data/data/cbf/cbf_tracts.html).
+
+If you were keen to build a spatial model and I have disappointed you then there is a great tutorial through the CDRC in the UK. You just need to sign up for a free membership and you can get access [here](https://data.cdrc.ac.uk/dataset/aa5491c9-cbac-4026-97c9-f9168462f4ac/resource/f8a51312-9c05-4701-8df0-5fd597eb9ce4/download/practical10.html)
+
+
+## Bonus: Fun with the Meetup API & Slippy Maps
+
+A slippy map is a web map where you can pan and zoom around. This exercise gives you an opportunity to map slippy maps with leaflet outside of tmap. Further, an opportunity to work with an API! API stands for Application Programming Interface. An API, such as this one for meetup, allows for remote severs to continuously and easily (on the users end) connect and exchange data (with no need to save anything on our servers). Using the Meetup API we are going to look at all meetups within a 10 mile radius of your address. As awesome as this idea is, I have to give credit to my lovely friend Ellen Talbot who runs R-Ladies Liverpool in the UK (@RLadiesLivUK)!
+The example presented here is using the WeWork location of today’s meetup instead of a home address.
+
+Go to the following [link]((https://secure.meetup.com/meetup_api/console/?path=/recommended/groups)) to get your Meetup API signed URL: (https://secure.meetup.com/meetup_api/console/?path=/recommended/groups)
+
+Fill out the following fields:
+
+Zip - Your postcode or one for WeWork 19148
+Country - United States
+Radius - 10
+Omit - description
+
+[For more information on the fields in the API request click here](https://www.meetup.com/meetup_api/docs/2/concierge/)
+
+```{r Meetup API}
+
+#Replace this signed URL with your own!
+meetup <-
+as.data.frame(
+fromJSON(
+"https://api.meetup.com/recommended/groups?photo-host=public&zip=19148&country=United+States&sig_id=206834555&radius=20&sig=dc1629cf2ba56c58e71f555c31aa89562d9a5348"
+)
+) 
+
+# Bind together the coordinates
+coords <- cbind(meetup$lat, meetup$lon)
+
+# # Turn these coords into points
+sp <- SpatialPoints(coords)
+
+# Join the points to the original data
+spdf <- SpatialPointsDataFrame(coords, meetup)
+
+# Add to a leaflet map and viola!
+leaflet(data = spdf) %>% addTiles() %>%
+  addMarkers(
+    ~ lon,
+    ~ lat,
+    popup = ~ as.character(name),
+    label = ~ as.character(name)
+  )
+```
+
+You can play around with other settings for this leaflet map by following some of the instruction [here](https://rstudio.github.io/leaflet/markers.html).
+
+## Bonus: Create & Buffer Points
+
+Often when working with spatial data we need to create our own shapefiles. This could be everything from drawing a polygon to creating points from lat/long data. Additionally, there are many instances where it is useful to buffer data (especially points) to do other types of spatial selections. 
+In this bonus material we are going to create a point shapefile from lat/long coorindates and buffer those points by 500 meters. We will use the Meetup API for this exercise as it contains lat/long and is likely already loaded into your environment. The Meetup API is introduced in Bonus #1. If you skipped that activity, please complete the first bit of it now to retrieve the Meetup data.
+
+```{r Create Points and Buffer}
+
+# Grab the coordinates from the Meetup data
+xy <- meetup[, c("lon", "lat")]
+
+# Turn it into a spatial points dataframe
+spdf <- SpatialPointsDataFrame(
+  coords = xy,
+  data = meetup,
+  proj4string = CRS("+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0")
+)
+
+# Quick check of the data
+plot(spdf)
+
+# We can buffer the data with the buffer function from the raster package. 
+# Buffering is done in the units of the CRS. For those in WGS this
+# would mean that the data is shown in degrees. For others like NAD83
+# the units would be in feet or meters. I will re-project the data here to NAD83 UTM 18N Pennsylvania
+# South Meters. This will give us manageable units to work with and introduces you to a common
+# coordinate system for the Philadelphia and surrounding area
+# Re-project the data
+spdf <- sp::spTransform(x = spdf, CRSobj = "+init=epsg:26918")
+
+# Buffer the data
+meetup_buffer <- raster::buffer(spdf, width = 500) # The unit is now meters
+
+# View the results
+tmap::tm_shape(meetup_buffer) + tmap::tm_borders(col = "blue")
+```
+
+Further work: As we learned how to do spatial selections earlier in the workshop. See if you can select points by polygons. If you are feeling ambitious, see if you can aggregate the data to the polygon layer. Then feel free to create maps or do any of the other analyses we covered today!
+
+## Other Spatial Data Sources
+If you want to continue to explore other spatial data, either during this workshop or afterward, these are some great places to go!
+
+[PASDA](http://www.pasda.psu.edu/) - Open GIS Data Access for Pennsylvania. Includes a variety of different types of data both raster and vector ranging from centerlines to roads to flood depth grids.
+
+[Open Data Philly](https://www.opendataphilly.org/) - A catalog of all the open data in the Philadelphia region (some of which is spatial). The repository covers topics from arts and culture to politics and real-estate.
+
+[National Map Viewer](https://apps.nationalmap.gov/download/) - The data download for the National Map Viewer, maintained by the United Staes Geological Survey primarily has land cover and elevation data. This is a good place to get a raster to play with.
+
+[Open Government](https://www.data.gov/open-gov/) - Open data repository for the US government covering everything from agriculture to maritime and finance.
+
+## Citations
+
+Burrough, P. A., McDonnell, R. A., & Llyod, C. D. (2015). Principals of Geographic Information Sytsems. New York: Oxford Univeristy Press.
+
+ESRI. (n.d.). What is a shapefile? Retrieved 28 11, 2018, from ArcGIS for Desktop: http://desktop.arcgis.com/en/arcmap/10.3/manage-data/shapefiles/what-is-a-shapefile.htm
+
+Lovelace, R., Cheshire, J., & Oldroyd, R. (2017). Introduction to Visualizing Spatial Data in R.
+
+Openshaw, S., 1983. The Modifiable Areal Unit Problem. Concepts and Techniques in Modern
+Geography, Volume 38, pp. 1-41.
+
+Openshaw, S., 1984. Ecological fallacies and the analysis of areal census data. Enviroment and
+Planning A, Volume 16, pp. 17-31.
+
+US Census Bureau. (2018, June 17). About the American Community Survey. Retrieved November 28, 2018, from Census.gov: https://www.census.gov/programs-surveys/acs/about.html
